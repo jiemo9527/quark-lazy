@@ -1,0 +1,10 @@
+{
+  "name": "userscript-regression-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test 夸克懒得点.*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.1"
+  }
+}
