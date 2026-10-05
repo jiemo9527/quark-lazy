@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.17
+// @version      1.18
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -231,6 +231,7 @@
   }
 
   function playRpcResultSound() {
+    if (!featureEnabled('rpcFailureSound')) return;
     try {
       const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextCtor) return;
@@ -1944,6 +1945,18 @@
     return section;
   }
 
+  function createRpcSoundSwitch() {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13px;';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.qkRpcSound = '1';
+    input.checked = featureEnabled('rpcFailureSound');
+    input.onchange = () => { setFeatureEnabled('rpcFailureSound', input.checked); WebDAV.push(); };
+    row.append(input, document.createTextNode('RPC 失败提示音（所有网盘共用，关闭后立即静音）'));
+    return row;
+  }
+
   function showSettingsPanel(focusWebDAV, host) {
     const quarkOnly = SITE_HOST === 'pan.quark.cn';
     const listSite = is115RelatedHost() ? '115.com' : SITE_HOST;
@@ -2010,7 +2023,7 @@
     ];
     quarkFeatureList.forEach(([key, label]) => addFeatureSwitch(quickSection, key, label,
       key === 'quarkHideSystemFolders' ? scheduleToolbarRefresh : undefined));
-    // RPC 失败提示音始终启用；成功不播放。
+    quickSection.appendChild(createRpcSoundSwitch());
     const blockedSection = createListManagerSection('红名单（屏蔽）', () => getSiteEntries(getBlockedList(), listSite), (items) => {
       setBlockedList([...getBlockedList().filter((entry) => getEntrySite(entry) !== listSite), ...items]);
     }, '暂无屏蔽用户');
@@ -5089,6 +5102,7 @@
         const features = siteFeatures[ON_115_AUX ? '115.com' : SITE_HOST] || [];
         const featurePage = document.createElement('div');
         featurePage.className = 'qk-rpc-feature-page';
+        if (!ON_QUARK) featurePage.appendChild(createRpcSoundSwitch());
         if (features.length) {
           if (ON_115_AUX || ON_115) {
             const autoRow = document.createElement('label');
