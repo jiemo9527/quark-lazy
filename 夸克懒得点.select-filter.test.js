@@ -59,11 +59,21 @@ test('非首屏的已选文件也取消勾选，不依赖其 DOM 行已渲染', 
 });
 
 test('字幕及其它非图片非视频文件不因 file_type 或体积被取消勾选', () => {
-  const extensions = ['srt', 'ASS', 'ssa', 'vtt', 'sub', 'idx', 'sup', 'smi', 'txt', 'zip'];
+  const extensions = ['srt', 'ASS', 'ssa', 'vtt', 'sub', 'idx', 'sup', 'smi', 'zip'];
   for (const fileType of [1, 3, 0, undefined]) {
     const items = extensions.map((ext) => ({ file: true, file_name: `movie.zh-CN.${ext}`, file_type: fileType, size: 1024 }));
     assert.deepEqual(filter(items), items.map(() => false), `file_type=${fileType} 不应覆盖文件扩展名`);
   }
+});
+
+test('TXT 文件不分大小写和体积均排除，同名文件夹及 txt 非末尾扩展名保留', () => {
+  assert.deepEqual(filter([
+    { file: true, file_name: '说明.txt', size: 0 },
+    { file: true, file_name: '说明.TXT', file_type: 1, size: 20 * 1024 * 1024 },
+    { file: true, file_name: '说明.TxT', file_type: 3 },
+    { file: false, file_name: '说明.txt', size: 12 },
+    { file: true, file_name: '说明.txt.srt', file_type: 1, size: 12 }
+  ]), [true, true, true, false, false]);
 });
 
 test('自动全选过滤图片、nfo 和不足 10 MiB 的视频，保留文件夹及其它文件', () => {
@@ -78,5 +88,5 @@ test('自动全选过滤图片、nfo 和不足 10 MiB 的视频，保留文件�
     { file: true, file_name: 'image.png', size: 50 * MB },
     { file: false, file_name: 'poster.jpg', file_type: 3, size: 0 },
     { file: true, file_name: 'notes.txt', size: 12 }
-  ]), [true, true, true, false, false, true, true, false, false]);
+  ]), [true, true, true, false, false, true, true, false, true]);
 });
