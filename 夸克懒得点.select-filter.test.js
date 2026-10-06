@@ -58,6 +58,14 @@ test('非首屏的已选文件也取消勾选，不依赖其 DOM 行已渲染', 
   assert.equal(keys.length, 39);
 });
 
+test('字幕及其它非图片非视频文件不因 file_type 或体积被取消勾选', () => {
+  const extensions = ['srt', 'ASS', 'ssa', 'vtt', 'sub', 'idx', 'sup', 'smi', 'txt', 'zip'];
+  for (const fileType of [1, 3, 0, undefined]) {
+    const items = extensions.map((ext) => ({ file: true, file_name: `movie.zh-CN.${ext}`, file_type: fileType, size: 1024 }));
+    assert.deepEqual(filter(items), items.map(() => false), `file_type=${fileType} 不应覆盖文件扩展名`);
+  }
+});
+
 test('自动全选过滤图片、nfo 和不足 10 MiB 的视频，保留文件夹及其它文件', () => {
   const MB = 1024 * 1024;
   assert.deepEqual(filter([

@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.18
+// @version      1.19
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -3237,8 +3237,9 @@
         if (!item || item.file !== true) return false;
         const name = String(item.file_name || '').toLowerCase();
         if (/\.nfo$/.test(name)) return true;
-        if (item.file_type === 3 || /\.(?:jpe?g|png|gif|webp|bmp|heic|heif|avif|tiff?|svg)$/.test(name)) return true;
-        const video = item.file_type === 1 || /\.(?:mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpeg|mpg|3gp|rmvb)$/.test(name);
+        // 按扩展名识别，避免 file_type 将字幕等非视频文件归类后按小文件排除。
+        if (/\.(?:jpe?g|png|gif|webp|bmp|heic|heif|avif|tiff?|svg)$/.test(name)) return true;
+        const video = /\.(?:mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpeg|mpg|3gp|rmvb)$/.test(name);
         return video && Number.isFinite(Number(item.size)) && Number(item.size) < 10 * 1024 * 1024;
       }
 
