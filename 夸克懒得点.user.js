@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.20
+// @version      1.21
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -2013,7 +2013,7 @@
     quickSection.appendChild(autoSaveWrap);
     const quarkFeatureList = [
       ['quarkLoadAllButton', '工具栏显示「加载全部文件 / 还原分页加载」按钮'],
-      ['quarkSelectAll', '页面加载后自动全选当前页（排除图片、NFO、TXT 和小于 10 MB 的视频）'],
+      ['quarkSelectAll', '页面加载后自动全选当前页（排除图片、NFO、TXT、DOC/DOCX 和小于 10 MB 的视频）'],
       ['quarkTraverseFolders', '勾选文件夹时递归发送其中的文件（RPC）'],
       ['quarkHideSystemFolders', '隐藏「隐私空间」「我的备份」文件夹'],
       ['quarkFrontDelete', '删除按钮提前'],
@@ -3236,7 +3236,7 @@
       function shouldQuarkAutoDeselect(item) {
         if (!item || item.file !== true) return false;
         const name = String(item.file_name || '').toLowerCase();
-        if (/\.(?:nfo|txt)$/.test(name)) return true;
+        if (/\.(?:nfo|txt|docx?)$/.test(name)) return true;
         // 按扩展名识别，避免 file_type 将字幕等非视频文件归类后按小文件排除。
         if (/\.(?:jpe?g|png|gif|webp|bmp|heic|heif|avif|tiff?|svg)$/.test(name)) return true;
         const video = /\.(?:mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpeg|mpg|3gp|rmvb)$/.test(name);

@@ -76,6 +76,17 @@ test('TXT 文件不分大小写和体积均排除，同名文件夹及 txt 非�
   ]), [true, true, true, false, false]);
 });
 
+test('DOC/DOCX 文件不分大小写和体积均排除，同名文件夹及 docm/dot 等保留', () => {
+  assert.deepEqual(filter([
+    { file: true, file_name: '说明.doc', size: 0 },
+    { file: true, file_name: '说明.DOCX', file_type: 1, size: 20 * 1024 * 1024 },
+    { file: true, file_name: '说明.DoC', file_type: 3 },
+    { file: false, file_name: '说明.docx', size: 12 },
+    { file: true, file_name: '说明.docm', size: 12 },
+    { file: true, file_name: '说明.doc.srt', size: 12 }
+  ]), [true, true, true, false, false, false]);
+});
+
 test('自动全选过滤图片、nfo 和不足 10 MiB 的视频，保留文件夹及其它文件', () => {
   const MB = 1024 * 1024;
   assert.deepEqual(filter([
