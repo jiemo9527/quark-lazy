@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.21
+// @version      1.25
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -81,7 +81,10 @@
     const value = GM_getValue(FEATURE_OPTIONS_KEY, {})[key];
     return key.endsWith('SelectAll') ? value === true : value !== false;
   };
-  const setFeatureEnabled = (key, enabled) => GM_setValue(FEATURE_OPTIONS_KEY, { ...GM_getValue(FEATURE_OPTIONS_KEY, {}), [key]: Boolean(enabled) });
+  const setFeatureEnabled = (key, enabled) => {
+    GM_setValue(FEATURE_OPTIONS_KEY, { ...GM_getValue(FEATURE_OPTIONS_KEY, {}), [key]: Boolean(enabled) });
+    if (key === '115FileFilter') window.dispatchEvent(new window.Event('qk-115-filter-options-changed'));
+  };
   const REDIRECT_PENDING_KEY = '__quark_lazy_pending_source_click';
   const LIST_LOAD_ALL = { uiPageSize: 50, apiMaxSize: 2000 };
   const TOOLBAR = {
@@ -133,6 +136,7 @@
     listFlowDone: new Set(),
     quarkStore: null,
     listLoadAllRunning: false,
+    listLoadAllRestoredUrl: '',
     toolbarRaf: 0,
     siderAutoCollapsed: false
   };
@@ -294,8 +298,8 @@
     GM_setValue(AUTO_SAVE_ENABLED_KEY, Boolean(enabled));
   }
 
-  // 手动加载全部：不再持久化原自动开关，也不在页面初始化时改变夸克请求条数。
-  // 点击时仅对当前「全部文件」目录调整 page size，然后从第一页重新拉取。
+  // 加载全部模式持久保存；刷新后恢复，只有主动还原分页才关闭。
+  // 工具栏按钮显示开关与实际加载模式独立。
   function getPageWindow() {
     return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   }
@@ -343,32 +347,34 @@
   async function ensureListLoadAll() {
     const fid = getCurrentListFid();
     if (!fid) return false;
-
-    const start = Date.now();
-    let store = null;
-    let all = null;
-    while (Date.now() - start < FLOW.selectorWaitMs) {
-      store = findQuarkStore();
-      const fileState = store && store.getState().file;
-      all = fileState && fileState.all;
-      if (all && fileState.listType === 'all' && !all.loading && !all.bigLoading && Array.isArray(all.list)) break;
-      all = null;
-      await sleep(200);
-    }
-    if (!store || !all) return false;
-
-    if (Runtime.listLoadAllRunning) return true;
+    // 等待 React 和网络前保存，点击后立即刷新也保留开启意图。
+    GM_setValue('quark_load_all_enabled_v1', true);
+    if (Runtime.listLoadAllRunning) return false;
+    Runtime.listLoadAllRestoredUrl = window.location.href;
     Runtime.listLoadAllRunning = true;
     try {
+      const start = Date.now();
+      let store = null;
+      let all = null;
+      while (Date.now() - start < FLOW.selectorWaitMs) {
+        if (getCurrentListFid() !== fid) return false;
+        store = findQuarkStore();
+        const fileState = store && store.getState().file;
+        all = fileState && fileState.all;
+        if (all && fileState.listType === 'all' && !all.loading && !all.bigLoading && Array.isArray(all.list)) break;
+        all = null;
+        await sleep(200);
+      }
+      if (!store || !all || getCurrentListFid() !== fid) return false;
       const target = LIST_LOAD_ALL.apiMaxSize;
       if (all.size !== target) store.dispatch.file.changeListFile({ listType: 'all', size: target });
-      console.log(`[夸克懒得点] 手动加载文件：当前 ${all.list.length}/${all.total}`);
+      console.log(`[夸克懒得点] 加载全部文件：当前 ${all.list.length}/${all.total}`);
       await store.dispatch.file.loadTableFiles({ listType: 'all', fid, page: 1 });
       const after = store.getState().file.all;
       console.log(`[夸克懒得点] 列表已加载 ${after.list.length}/${after.total}`);
       return true;
     } catch (error) {
-      console.warn('[夸克懒得点] 手动加载全部失败:', error);
+      console.warn('[夸克懒得点] 加载全部失败（保留开启状态，刷新后重试）:', error);
       return false;
     } finally {
       Runtime.listLoadAllRunning = false;
@@ -377,9 +383,12 @@
 
   async function restoreListPaging() {
     const fid = getCurrentListFid();
+    if (!fid || Runtime.listLoadAllRunning) return false;
+    // 关闭意图同样先保存，网络失败或随后刷新也不重新开启。
+    GM_setValue('quark_load_all_enabled_v1', false);
     const store = findQuarkStore();
     const all = store && store.getState().file && store.getState().file.all;
-    if (!fid || !all || Runtime.listLoadAllRunning) return false;
+    if (!all) return false;
     Runtime.listLoadAllRunning = true;
     try {
       store.dispatch.file.changeListFile({ listType: 'all', size: LIST_LOAD_ALL.uiPageSize });
@@ -394,9 +403,7 @@
   }
 
   function isListLoadAllActive() {
-    const store = findQuarkStore();
-    const all = store && store.getState().file && store.getState().file.all;
-    return Boolean(all && all.size === LIST_LOAD_ALL.apiMaxSize);
+    return GM_getValue('quark_load_all_enabled_v1', false) === true;
   }
 
   function sleep(ms) {
@@ -957,7 +964,7 @@
   // WebDAV 同步：脚本存储里除 WebDAV 账号外的所有键都参与备份/恢复。
   const SYNC_EXCLUDED_KEYS = new Set([WEBDAV_CONF_KEY]);
   const SYNC_KNOWN_KEYS = [STORAGE_KEY, WARNING_KEY, LOG_KEY, SYNC_AUDIT_KEY, AUTO_SAVE_ENABLED_KEY, FEATURE_OPTIONS_KEY,
-    RPC_FAILURE_KEY, 'rpc_helper_settings_v3', 'rpc_active_v1', 'quark_social_token', 'baidu_access_token', 'qk115_hdhive_jobs_v1'];
+    RPC_FAILURE_KEY, 'rpc_helper_settings_v3', 'rpc_active_v1', 'quark_load_all_enabled_v1', 'quark_social_token', 'baidu_access_token', 'qk115_hdhive_jobs_v1'];
   function collectSyncValues() {
     let keys = [];
     try { if (typeof GM_listValues === 'function') keys = GM_listValues() || []; } catch (error) { keys = []; }
@@ -2343,6 +2350,15 @@
 
   async function handleListPage() {
     const currentUrl = window.location.href;
+    if (isListLoadAllActive() && getCurrentListFid()) {
+      if (Runtime.listLoadAllRunning) return;
+      if (Runtime.listLoadAllRestoredUrl !== currentUrl) {
+        // 每个路由只恢复一次，失败不因 DOM 变更无限重试。
+        Runtime.listLoadAllRestoredUrl = currentUrl;
+        await ensureListLoadAll();
+        if (window.location.href !== currentUrl) return;
+      }
+    }
     const pendingSourceClick = hasPendingSourceClick();
     if (Runtime.listFlowDone.has(currentUrl) && !pendingSourceClick) return;
 
@@ -2942,6 +2958,14 @@
       `;
       style.textContent += `
         .qk-rpc-115-row { padding:12px 24px; min-height:54px; }
+        .qk-115-filter-row { display:flex; align-items:center; gap:10px; padding:6px 24px 8px; min-height:40px; box-sizing:border-box; border-bottom:1px solid #eef0f4; }
+        .qk-115-filter-row .qk-115-filter-input { flex:0 1 280px; height:32px; padding:0 10px; border:1px solid #cbd5e1; border-radius:7px; outline:none; font-size:13px; color:#1e293b; background:#fff; transition:border-color .15s, box-shadow .15s; }
+        .qk-115-filter-row .qk-115-filter-input:focus { border-color:#b45309; box-shadow:0 0 0 3px rgba(180,83,9,.14); }
+        .qk-115-filter-row .qk-115-filter-input::placeholder { color:#94a3b8; }
+        .qk-115-filter-row .qk-115-filter-count { font-size:12px; color:#64748b; white-space:nowrap; }
+        .qk-115-filter-row .qk-115-filter-clear { height:28px; padding:0 10px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; color:#64748b; cursor:pointer; font-size:12px; }
+        .qk-115-filter-row .qk-115-filter-clear:hover { border-color:#b45309; color:#b45309; }
+        .qk-115-file-hidden-by-filter { display:none !important; }
         .qk-rpc-guangya-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 0 10px 28px; min-height:44px; box-sizing:border-box; }
         .qk-rpc-guangya-row #${CONTAINER_ID} { margin:0; }
         /* 139、迅雷等站点把全局 input[type=checkbox] 设成 appearance:none、宽高 0，导致脚本设置里的勾选框看不见。 */
@@ -3929,15 +3953,14 @@
         return JSON.parse(new TextDecoder().decode(new Uint8Array(payload)));
       }
       function one15SelectedFiles() {
-        return [...getPageWindow().document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')].map((checkbox) => {
-          const key = Object.keys(checkbox).find((k) => k.startsWith('__reactFiber$'));
-          let fiber = key && checkbox[key];
-          for (let i = 0; fiber && i < 40; i++, fiber = fiber.return) {
-            const file = fiber.memoizedProps?.file;
-            if (file) return { pickCode: file.pc, name: file.n || file.name, isFolder: !file.fid, cid: file.cid, size: file.s || file.size };
-          }
-          return null;
-        }).filter(Boolean);
+        const doc = getPageWindow().document;
+        const keyword = get115FilterKeyword(doc);
+        return [...doc.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')]
+          .map((checkbox) => {
+            const file = get115RowFile(checkbox);
+            if (!file || !matches115FileFilter(file, keyword)) return null;
+            return { pickCode: file.pc, name: file.n || file.name, isFolder: !file.fid, cid: file.cid, size: file.s || file.size };
+          }).filter(Boolean);
       }
       // 列出 115 目录的直接子项（文件带 fid；文件夹无 fid，cid 为自身目录 ID）。
       async function one15ListDir(cid) {
@@ -5091,7 +5114,7 @@
         const pageNames = { ...(!ON_115_AUX ? { rpc: 'RPC服务器与保存位置' } : {}), general: `${siteName}专属`, blocked: '红橙名单', logs: '日志', sync: 'WebDAV同步' };
         let sections = null;
         const siteFeatures = {
-          '115.com': [['115ShareSharerFilter', '分享来源红/橙名单过滤'], ['115AutoRedirect', '115 自动跳转新版'], ['115DeleteFirst', '115 删除按钮提前'], ['115HdhiveTransfer', '115 影巢一键转存'], ['115HideOperations', '115 隐藏指定操作按钮'], ['115SelectAll', '115 页面加载后自动全选当前页'], ['115TraverseFolders', '115 勾选文件夹时递归发送其中的文件（RPC）'], ['115NativeF5', '115 F5 整页刷新（替代 115 自带的列表刷新）']],
+          '115.com': [['115ShareSharerFilter', '分享来源红/橙名单过滤'], ['115AutoRedirect', '115 自动跳转新版'], ['115DeleteFirst', '115 删除按钮提前'], ['115HdhiveTransfer', '115 影巢一键转存'], ['115HideOperations', '115 隐藏指定操作按钮'], ['115FileFilter', '115 文件列表关键词过滤（全选/RPC 仅包含匹配项）'], ['115SelectAll', '115 页面加载后自动全选当前页'], ['115TraverseFolders', '115 勾选文件夹时递归发送其中的文件（RPC）'], ['115NativeF5', '115 F5 整页刷新（替代 115 自带的列表刷新）']],
           'drive.uc.cn': [['ucShareSharerFilter', '分享来源红/橙名单过滤'], ['ucSelectAll', 'UC 页面加载后自动全选当前页']],
           'pan.baidu.com': [['baiduShareSharerFilter', '分享来源红/橙名单过滤'], ['baiduSelectAll', '百度页面加载后自动全选当前页']],
           'yun.139.com': [['mcloudShareSharerFilter', '分享来源红/橙名单过滤'], ['mcloudSelectAll', '139 页面加载后自动全选当前页']],
@@ -5760,7 +5783,7 @@
           manualLoad.className = 'rpc-helper-btn qk-rpc-load-all';
           const loadAllLabel = () => (isListLoadAllActive() ? '还原分页加载' : '加载全部文件');
           if (!manualLoad.disabled && manualLoad.textContent !== loadAllLabel()) manualLoad.textContent = loadAllLabel();
-          manualLoad.title = isListLoadAllActive() ? '恢复夸克默认的每页 50 个、滚动加载' : '手动加载当前目录全部文件（每批最多 2000 个），不会在进入页面时自动执行';
+          manualLoad.title = isListLoadAllActive() ? '已开启加载全部（刷新网页后保持）；点击关闭并恢复默认每页 50 个' : '加载当前目录全部文件（每批最多 2000 个）；开启状态会记住，刷新后自动恢复';
           if (!manualLoad.onclick) manualLoad.onclick = async () => {
             if (Runtime.listLoadAllRunning || !shouldHandleListPage()) return;
             const restoring = isListLoadAllActive();
@@ -5985,6 +6008,201 @@
   }
 
   install115OperationHider();
+
+  // 115 文件列表关键词过滤：在工具栏下方显示搜索框，输入后实时隐藏文件名不含关键词的行。
+  function get115FilterKeyword(doc = document) {
+    if (!featureEnabled('115FileFilter')) return '';
+    const input = doc.querySelector('.qk-115-filter-input');
+    const route = `${location.pathname}?cid=${new URLSearchParams(location.search).get('cid') || '0'}`;
+    if (input?.dataset.qk115FilterRoute && input.dataset.qk115FilterRoute !== route) return '';
+    return (input?.value || '').trim().toLowerCase();
+  }
+
+  function matches115FileFilter(file, keyword) {
+    return !keyword || String(file.n || file.name || file.file_name || '').toLowerCase().includes(keyword);
+  }
+
+  function get115FileFiber(node) {
+    const key = Object.keys(node).find((k) => k.startsWith('__reactFiber$'));
+    let fiber = key && node[key];
+    let root = fiber;
+    while (root?.return) root = root.return;
+    if (root?.stateNode?.current && root.stateNode.current !== root) fiber = fiber.alternate || fiber;
+    return fiber;
+  }
+
+  function get115RowFile(checkbox) {
+    for (let fiber = get115FileFiber(checkbox), i = 0; fiber && i < 40; i++, fiber = fiber.return) {
+      if (fiber.memoizedProps?.file) return fiber.memoizedProps.file;
+    }
+    const row = checkbox.closest('[data-file-id], .file-list-item');
+    const name = row?.querySelector('.file-name-responsive, [class*="file-name"], [class*="fileName"]');
+    return name ? { n: name.getAttribute('title') || name.textContent || '' } : null;
+  }
+
+  function get115FileListProps(doc = document) {
+    const checkbox = doc.querySelector('.file-list-wrap .checkbox-area input[type="checkbox"]');
+    if (!checkbox) return null;
+    for (let fiber = get115FileFiber(checkbox), i = 0; fiber && i < 60; i++, fiber = fiber.return) {
+      const props = fiber.memoizedProps;
+      if (Array.isArray(props?.files) && typeof props.on_selection_change === 'function') return props;
+    }
+    return null;
+  }
+
+  function install115FileFilter() {
+    if (SITE_HOST !== '115.com' || !location.pathname.startsWith('/storage/allfiles')) return;
+    const FILTER_ROW_CLASS = 'qk-115-filter-row';
+    const HIDDEN_CLASS = 'qk-115-file-hidden-by-filter';
+    let filterInput = null;
+    let countLabel = null;
+    let clearBtn = null;
+    let debounceTimer = 0;
+    let lastCid = '';
+
+    function applyFilter() {
+      const keyword = get115FilterKeyword();
+      let total = 0;
+      let matched = 0;
+      const checkboxes = [...document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]')];
+      const excluded = [];
+      checkboxes.forEach((checkbox) => {
+        const row = checkbox.closest('[data-file-id], .file-list-item') || checkbox.closest('.checkbox-area')?.parentElement;
+        if (!row) return;
+        const file = get115RowFile(checkbox);
+        const matches = !keyword || (file && matches115FileFilter(file, keyword));
+        total++;
+        if (matches) matched++;
+        if (row.classList.contains(HIDDEN_CLASS) !== !matches) row.classList.toggle(HIDDEN_CLASS, !matches);
+        if (!matches && checkbox.checked) excluded.push(checkbox);
+      });
+      // 批量同步 React 的真实选区；逐行 click 会触发重绘，导致后续 checkbox 已脱离文档。
+      if (excluded.length) {
+        const props = get115FileListProps();
+        if (props && Array.isArray(props.selected_files)) {
+          const selected = props.selected_files.filter((file) => matches115FileFilter(file, keyword));
+          if (selected.length !== props.selected_files.length) props.on_selection_change(selected);
+        } else {
+          excluded[0].click();
+        }
+      }
+      const text = keyword ? `${matched}/${total}` : `共 ${total} 项`;
+      if (countLabel && countLabel.textContent !== text) countLabel.textContent = text;
+      if (countLabel) countLabel.style.color = keyword && matched === 0 ? '#b42318' : '#64748b';
+      if (clearBtn) clearBtn.hidden = !keyword;
+    }
+
+    function scheduleFilter() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(applyFilter, 150);
+    }
+
+    function clearFilter() {
+      if (filterInput) filterInput.value = '';
+      document.querySelectorAll('.' + HIDDEN_CLASS).forEach((el) => el.classList.remove(HIDDEN_CLASS));
+      if (countLabel) { countLabel.textContent = ''; countLabel.style.color = '#64748b'; }
+      if (clearBtn) clearBtn.hidden = true;
+    }
+
+    // 目录变化时清空过滤。
+    function checkCidChange() {
+      const params = new URLSearchParams(location.search);
+      const cid = params.get('cid') || '0';
+      if (cid !== lastCid) {
+        lastCid = cid;
+        clearFilter();
+      }
+    }
+
+    // 捕获两个原生全选入口，在 115 全选处理前直接提交匹配文件，避免先全选再延迟取消的竞态。
+    function handleFilteredSelectAll(event) {
+      const control = event.target.closest?.('input[type="checkbox"]');
+      if (!control || !get115FilterKeyword()) return;
+      const list = document.querySelector('.file-list-wrap');
+      const isHeader = list?.parentElement.contains(control) && !list.contains(control);
+      if (control.title !== '全选当前页' && !isHeader) return;
+      const props = get115FileListProps();
+      if (!props) { scheduleFilter(); return; }
+      const keyword = get115FilterKeyword();
+      const matching = props.files.filter((file) => matches115FileFilter(file, keyword));
+      const selected = [...document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')]
+        .map(get115RowFile).filter((file) => file && matches115FileFilter(file, keyword));
+      const allChecked = matching.length > 0 && selected.length === matching.length;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      props.on_selection_change(allChecked ? [] : matching);
+      scheduleFilter();
+    }
+
+    let pending = 0;
+    function mount() {
+      if (!featureEnabled('115FileFilter')) {
+        clearTimeout(debounceTimer);
+        clearFilter();
+        document.querySelectorAll('.' + FILTER_ROW_CLASS).forEach((row) => row.remove());
+        filterInput = countLabel = clearBtn = null;
+        return;
+      }
+      checkCidChange();
+      // 找到 RPC 行的父容器（sticky 区域），将过滤行插在 RPC 行后面
+      const rpcRow = document.querySelector('.qk-rpc-115-row');
+      const host = rpcRow && rpcRow.parentElement;
+      if (!host) return;
+
+      let filterRow = host.querySelector(':scope > .' + FILTER_ROW_CLASS);
+      if (!filterRow) {
+        filterRow = document.createElement('div');
+        filterRow.className = FILTER_ROW_CLASS;
+
+        filterInput = document.createElement('input');
+        filterInput.type = 'text';
+        filterInput.className = 'qk-115-filter-input';
+        filterInput.placeholder = '🔍 输入关键词过滤文件…';
+        filterInput.addEventListener('input', scheduleFilter);
+        // Esc 清空
+        filterInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { clearFilter(); e.stopPropagation(); } });
+
+        countLabel = document.createElement('span');
+        countLabel.className = 'qk-115-filter-count';
+
+        clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'qk-115-filter-clear';
+        clearBtn.textContent = '清除';
+        clearBtn.hidden = true;
+        clearBtn.onclick = clearFilter;
+
+        filterRow.append(filterInput, countLabel, clearBtn);
+      }
+      // 保证过滤行紧跟 RPC 行
+      if (filterRow.previousElementSibling !== rpcRow) {
+        rpcRow.insertAdjacentElement('afterend', filterRow);
+      }
+      if (filterInput) filterInput.dataset.qk115FilterRoute = `${location.pathname}?cid=${new URLSearchParams(location.search).get('cid') || '0'}`;
+      // 列表内容变化时重新应用过滤（如翻页、加载更多）
+      if (filterInput && filterInput.value.trim()) scheduleFilter();
+    }
+
+    const start = () => {
+      if (!document.body) return setTimeout(start, 100);
+      mount();
+      window.addEventListener('click', handleFilteredSelectAll, true);
+      window.addEventListener('qk-115-filter-options-changed', mount);
+      new MutationObserver((records) => {
+        const listChanged = records.some((record) => record.target.closest?.('.file-list-wrap'));
+        if (listChanged && get115FilterKeyword()) scheduleFilter();
+        if (records.some((record) => record.type === 'childList' && !record.target.closest?.('.qk-115-filter-row'))) {
+          clearTimeout(pending);
+          pending = setTimeout(mount, 200);
+        }
+      }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'checked'] });
+      // URL 变化时检测目录切换
+      window.addEventListener('popstate', checkCidChange);
+      window.addEventListener('hashchange', checkCidChange);
+    };
+    start();
+  }
+
   // 115 新版把 F5 绑定为「刷新文件列表」并 preventDefault，导致浏览器 F5 无法整页刷新。
   // 在捕获阶段最先拦下 F5，阻止 115 处理，让浏览器执行原生刷新（Ctrl+F5 / Shift+F5 同理）。
   (function install115NativeF5() {
@@ -6916,6 +7134,7 @@
     else start115AutoSave();
   }
   install115DeleteFirst();
+  install115FileFilter();
   install115HdhiveTransfer();
   const IS_QUARK = SITE_HOST === 'pan.quark.cn';
   const IS_SUPPORTED_DRIVE = IS_QUARK || ['115.com', 'drive.uc.cn', 'cloud.189.cn', 'pan.xunlei.com', 'yun.139.com', 'yun.123pan.cn', 'pan.baidu.com', 'www.guangyapan.com'].includes(SITE_HOST);
