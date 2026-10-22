@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.25
+// @version      1.27
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -2968,6 +2968,21 @@
         .qk-115-file-hidden-by-filter { display:none !important; }
         .qk-rpc-guangya-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 0 10px 28px; min-height:44px; box-sizing:border-box; }
         .qk-rpc-guangya-row #${CONTAINER_ID} { margin:0; }
+        .qk-rpc-123-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; min-height:36px; box-sizing:border-box; }
+        .qk-rpc-123-row #${CONTAINER_ID} { margin:0; }
+        .qk-rpc-123-row #${CONTAINER_ID} .qk-rpc-server { width:auto !important; max-width:180px; }
+        .qk-rpc-123-row #${CONTAINER_ID} .qk-rpc-path { width:auto !important; max-width:360px; }
+        .homeClass > .qk-rpc-123-row + .home-nav { margin-top:12px; }
+        /* 宿主工具栏较窄时（如百度）不压缩按钮，改为在容器内换行，避免文字被挤成多行、溢出截断。 */
+        #${CONTAINER_ID} { flex-wrap:wrap; max-width:100%; min-width:0; box-sizing:border-box; }
+        #${CONTAINER_ID} > * { flex:0 0 auto; white-space:nowrap; }
+        .wp-s-agile-tool-bar__header:has(> #${CONTAINER_ID}) { flex-wrap:wrap !important; height:auto !important; row-gap:8px; }
+        .wp-s-agile-tool-bar__header > #${CONTAINER_ID} { flex:0 1 auto; }
+        /* 百度外层头部固定 40px 高，工具栏换行后会盖住面包屑；放开高度并顶部对齐。 */
+        .wp-s-core-pan__header:has(#${CONTAINER_ID}),
+        .wp-s-core-pan__header:has(#${CONTAINER_ID}) .wp-s-core-pan__header-tool-bar { height:auto !important; min-height:32px; }
+        .wp-s-core-pan__header:has(#${CONTAINER_ID}) .wp-s-core-pan__header-tool-bar { align-items:flex-start !important; }
+        .wp-s-core-pan__header-tool-bar--action:has(#${CONTAINER_ID}) { min-width:0; flex:1 1 auto; }
         /* 139、迅雷等站点把全局 input[type=checkbox] 设成 appearance:none、宽高 0，导致脚本设置里的勾选框看不见。 */
         #${MODAL_ID} input[type="checkbox"], [data-qk-log-center] input[type="checkbox"], .qk-lazy-settings-grid input[type="checkbox"] {
           -webkit-appearance: checkbox !important; appearance: auto !important;
@@ -5821,6 +5836,21 @@
           syncUIState();
           return;
         }
+        if (ON_123PAN) {
+          // 首页工具栏是固定 40px 的单行 flex，塞入按钮组会被挤成多行并盖住面包屑；改为工具栏下方独立一行。
+          const operator = document.querySelector('.homeClass > .home-operator');
+          if (operator) {
+            let row = operator.parentElement.querySelector(':scope > .qk-rpc-123-row');
+            if (!row) {
+              row = document.querySelector('.qk-rpc-123-row') || document.createElement('div');
+              row.className = 'qk-rpc-123-row';
+            }
+            if (row.previousElementSibling !== operator) operator.insertAdjacentElement('afterend', row);
+            if (container.parentElement !== row) row.appendChild(container);
+            syncUIState();
+            return;
+          }
+        }
         let targetParent = null;
         let insertBeforeNode = null;
         if (ON_UC) {
@@ -5832,7 +5862,7 @@
           } else if (ON_MCLOUD) {
             targetParent = document.querySelector('.top_button, .top-btns');
           } else if (ON_123PAN) {
-            targetParent = document.querySelector('.home-operator .home-operator-button-group, .content .content-header-container-wrap .rightInfo, .single-file-sharing-container-content-file-operate');
+            targetParent = document.querySelector('.content .content-header-container-wrap .rightInfo, .single-file-sharing-container-content-file-operate');
           } else if (ON_BAIDU) {
             targetParent = document.querySelector('.wp-s-agile-tool-bar__header');
           } else {
