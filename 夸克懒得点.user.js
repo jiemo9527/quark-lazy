@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.27
+// @version      1.29
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -3970,12 +3970,12 @@
       function one15SelectedFiles() {
         const doc = getPageWindow().document;
         const keyword = get115FilterKeyword(doc);
-        return [...doc.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')]
-          .map((checkbox) => {
-            const file = get115RowFile(checkbox);
-            if (!file || !matches115FileFilter(file, keyword)) return null;
-            return { pickCode: file.pc, name: file.n || file.name, isFolder: !file.fid, cid: file.cid, size: file.s || file.size };
-          }).filter(Boolean);
+        // 新版列表只挂载视口附近的行，完整选区必须读取当前 React props。
+        const props = get115FileListProps(doc);
+        const selected = Array.isArray(props?.selected_files) ? props.selected_files :
+          [...doc.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')].map(get115RowFile);
+        return selected.filter((file) => file && matches115FileFilter(file, keyword))
+          .map((file) => ({ pickCode: file.pc, name: file.n || file.name, isFolder: !file.fid, cid: file.cid, size: file.s || file.size }));
       }
       // 列出 115 目录的直接子项（文件带 fid；文件夹无 fid，cid 为自身目录 ID）。
       async function one15ListDir(cid) {
@@ -6071,9 +6071,9 @@
   }
 
   function get115FileListProps(doc = document) {
-    const checkbox = doc.querySelector('.file-list-wrap .checkbox-area input[type="checkbox"]');
-    if (!checkbox) return null;
-    for (let fiber = get115FileFiber(checkbox), i = 0; fiber && i < 60; i++, fiber = fiber.return) {
+    const node = doc.querySelector('.file-list-wrap .checkbox-area input[type="checkbox"]') || doc.querySelector('.file-list-wrap');
+    if (!node) return null;
+    for (let fiber = get115FileFiber(node), i = 0; fiber && i < 60; i++, fiber = fiber.return) {
       const props = fiber.memoizedProps;
       if (Array.isArray(props?.files) && typeof props.on_selection_change === 'function') return props;
     }
@@ -6106,15 +6106,17 @@
         if (row.classList.contains(HIDDEN_CLASS) !== !matches) row.classList.toggle(HIDDEN_CLASS, !matches);
         if (!matches && checkbox.checked) excluded.push(checkbox);
       });
-      // 批量同步 React 的真实选区；逐行 click 会触发重绘，导致后续 checkbox 已脱离文档。
-      if (excluded.length) {
-        const props = get115FileListProps();
-        if (props && Array.isArray(props.selected_files)) {
-          const selected = props.selected_files.filter((file) => matches115FileFilter(file, keyword));
-          if (selected.length !== props.selected_files.length) props.on_selection_change(selected);
-        } else {
-          excluded[0].click();
-        }
+      // 即使不匹配项未挂载，也要同步 React 的完整选区。
+      const props = get115FileListProps();
+      if (props && Array.isArray(props.selected_files)) {
+        const selected = props.selected_files.filter((file) => matches115FileFilter(file, keyword));
+        if (selected.length !== props.selected_files.length) props.on_selection_change(selected);
+      } else if (excluded.length) {
+        excluded[0].click();
+      }
+      if (props) {
+        total = props.files.length;
+        matched = props.files.filter((file) => matches115FileFilter(file, keyword)).length;
       }
       const text = keyword ? `${matched}/${total}` : `共 ${total} 项`;
       if (countLabel && countLabel.textContent !== text) countLabel.textContent = text;
@@ -6155,8 +6157,9 @@
       if (!props) { scheduleFilter(); return; }
       const keyword = get115FilterKeyword();
       const matching = props.files.filter((file) => matches115FileFilter(file, keyword));
-      const selected = [...document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')]
-        .map(get115RowFile).filter((file) => file && matches115FileFilter(file, keyword));
+      const selected = (Array.isArray(props.selected_files) ? props.selected_files :
+        [...document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked')].map(get115RowFile))
+        .filter((file) => file && matches115FileFilter(file, keyword));
       const allChecked = matching.length > 0 && selected.length === matching.length;
       event.preventDefault();
       event.stopImmediatePropagation();

@@ -12,10 +12,10 @@ function slice(start, end) {
 }
 const wait = (dom, ms = 600) => new Promise((resolve) => dom.window.setTimeout(resolve, ms));
 
-function harness(initialFeatures = {}) {
+function harness(initialFeatures = {}, virtual = {}) {
   const dom = new JSDOM('<div><div class="qk-rpc-115-row"></div></div><input type="checkbox" title="全选当前页"><section><header><input type="checkbox"></header><div class="file-list-wrap"></div></section>', { url: 'https://115.com/storage/allfiles?cid=1' });
   const { document } = dom.window;
-  const files = [{ fid: '1', pc: 'p1', n: 'Keep.MKV' }, { fid: '2', pc: 'p2', n: 'Other.mkv' }];
+  const files = virtual.files || [{ fid: '1', pc: 'p1', n: 'Keep.MKV' }, { fid: '2', pc: 'p2', n: 'Other.mkv' }];
   let selected = [];
   const list = document.querySelector('.file-list-wrap');
   const header = document.querySelector('header input');
@@ -23,7 +23,8 @@ function harness(initialFeatures = {}) {
   const props = { files, on_selection_change: (next) => { selected = [...next]; render(); } };
   function render() {
     props.selected_files = selected;
-    list.replaceChildren(...files.map((file) => {
+    list.__reactFiber$test = { memoizedProps: {}, return: { memoizedProps: props } };
+    list.replaceChildren(...files.slice(virtual.start || 0, (virtual.start || 0) + (virtual.visible ?? files.length)).map((file) => {
       const row = document.createElement('div');
       row.className = 'file-list-item'; row.dataset.fileId = file.fid;
       const checked = selected.includes(file);
@@ -170,3 +171,69 @@ test('115 无匹配全选不发送；切换目录不能沿用旧关键词', asyn
     assert.equal(h.document.querySelector('.qk-115-filter-input').value, '');
   } finally { h.dom.window.close(); }
 });
+
+for (const entry of ['header', 'toolbar']) {
+  test(`115 虚拟列表${entry}筛选全选后再次点击可完整取消，不依赖已挂载行数`, async () => {
+    const files = Array.from({ length: 60 }, (_, i) => ({ fid: String(i + 1), pc: `filter-${i}`, n: `${i < 30 ? 'Keep' : 'Other'}-${i}.mkv` }));
+    const h = harness({}, { files, visible: 17 });
+    try {
+      await h.filter('keep');
+      h[entry].click();
+      assert.equal(h.selected.length, 30);
+      assert.equal((await h.context.collect()).length, 30);
+      h[entry].click();
+      assert.equal(h.selected.length, 0);
+      assert.equal((await h.context.collect()).length, 0);
+    } finally { h.dom.window.close(); }
+  });
+}
+
+test('115 输入筛选时移除未挂载的已选不匹配文件，计数覆盖完整列表', async () => {
+  const files = Array.from({ length: 60 }, (_, i) => ({ fid: String(i + 1), pc: `offscreen-${i}`, n: `${i < 30 ? 'Keep' : 'Other'}-${i}.mkv` }));
+  const h = harness({}, { files, visible: 17 });
+  try {
+    h.props.on_selection_change(files);
+    await h.filter('keep');
+    assert.deepEqual(h.selected.map((x) => x.pc), files.slice(0, 30).map((x) => x.pc));
+    assert.equal(h.document.querySelector('.qk-115-filter-count').textContent, '30/60');
+  } finally { h.dom.window.close(); }
+});
+
+test('115 虚拟行全部卸载时仍能读取选区，空的真实选区不能回退到过期勾选DOM', async () => {
+  const h = harness({}, { visible: 0 });
+  try {
+    h.props.on_selection_change(h.files);
+    assert.equal((await h.context.collect()).length, 2);
+    h.props.on_selection_change([]);
+    assert.equal((await h.context.collect()).length, 0);
+  } finally { h.dom.window.close(); }
+  const stale = harness();
+  try {
+    stale.document.querySelector('.file-list-wrap input').checked = true;
+    assert.equal((await stale.context.collect()).length, 0);
+    delete stale.props.selected_files;
+    assert.equal((await stale.context.collect()).length, 1, '仅缺少真实选区时兼容DOM回退');
+  } finally { stale.dom.window.close(); }
+});
+
+for (const enabled of [true, false]) {
+  test(`115 虚拟列表只挂载17行，全选310项仍完整交给真实发送流程（筛选开关${enabled}）`, async () => {
+    const files = Array.from({ length: 310 }, (_, i) => ({ fid: String(i + 1), pc: `virtual-${i}`, n: `Episode-${i}.mkv` }));
+    const h = harness({ '115FileFilter': enabled }, { files, visible: 17 });
+    try {
+      h.toolbar.click();
+      assert.equal(h.document.querySelectorAll('.file-list-wrap input:checked').length, 17);
+      assert.equal(h.selected.length, 310);
+      assert.deepEqual(Array.from(await h.context.collect(), (x) => x.pickCode), files.map((x) => x.pc));
+      const delivered = [], errors = [];
+      Object.assign(h.context, { sending: false, resolveActive: () => ({ rpc: { name: 'test' }, dir: '/downloads' }),
+        setBusy: () => {}, setSendText: () => {}, QUARK_CONFIRM_OVER: 1000, probeRpc: async () => ({ ok: true }),
+        resetSessionFailures: () => {}, recordRpcLog: () => {}, notifyToast: () => {}, playRpcResultSound: () => {},
+        console: { error: (...args) => errors.push(args), warn: () => {} },
+        deliverJobs: async (_rpc, jobs) => { delivered.push(...jobs); return { ok: jobs, failed: [] }; } });
+      await h.context.send({ label: '115', collect: h.context.collect, nameOf: (f) => f.name, ident: (f) => ({ pickCode: f.pickCode }) });
+      assert.deepEqual(errors, []);
+      assert.deepEqual(delivered.map((x) => x.name), files.map((x) => x.n));
+    } finally { h.dom.window.close(); }
+  });
+}
