@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         夸克懒得点
 // @namespace    https://greasyfork.org/users/158417
-// @version      1.29
+// @version      1.34
 // @downloadURL  https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.user.js
 // @updateURL    https://update.greasyfork.org/scripts/483069/%E5%A4%B8%E5%85%8B%E6%87%92%E5%BE%97%E7%82%B9.meta.js
 // @homepageURL  https://github.com/jiemo9527/quark-lazy
@@ -961,10 +961,11 @@
     return window.location.href.startsWith('https://pan.quark.cn/list');
   }
 
-  // WebDAV 同步：脚本存储里除 WebDAV 账号外的所有键都参与备份/恢复。
+  // WebDAV 完整快照包含登录授权，只有 WebDAV 连接账号不参与备份。
   const SYNC_EXCLUDED_KEYS = new Set([WEBDAV_CONF_KEY]);
   const SYNC_KNOWN_KEYS = [STORAGE_KEY, WARNING_KEY, LOG_KEY, SYNC_AUDIT_KEY, AUTO_SAVE_ENABLED_KEY, FEATURE_OPTIONS_KEY,
-    RPC_FAILURE_KEY, 'rpc_helper_settings_v3', 'rpc_active_v1', 'quark_load_all_enabled_v1', 'quark_social_token', 'baidu_access_token', 'qk115_hdhive_jobs_v1'];
+    RPC_FAILURE_KEY, 'rpc_helper_settings_v3', 'rpc_active_v1', ...Object.keys(SITE_LABELS).map((host) => `rpc_active_v1:${host}`),
+    'quark_load_all_enabled_v1', 'quark_social_token', 'baidu_access_token', 'guangya_client_auth_v1', 'qk115_hdhive_jobs_v1'];
   function collectSyncValues() {
     let keys = [];
     try { if (typeof GM_listValues === 'function') keys = GM_listValues() || []; } catch (error) { keys = []; }
@@ -2453,7 +2454,7 @@
     const MODAL_ID = 'qk-rpc-settings-modal';
     const STYLE_ID = 'qk-rpc-style';
     const LEGACY_CONTAINER_ID = 'rpc-helper-container';
-    const ACTIVE_KEY = 'rpc_active_v1';
+    const ACTIVE_KEY = `rpc_active_v1:${SITE_HOST}`;
     const ON_QUARK = SITE_HOST === 'pan.quark.cn';
     const ON_TCLOUD = SITE_HOST === 'cloud.189.cn';
     const ON_XUNLEI = SITE_HOST === 'pan.xunlei.com';
@@ -2966,6 +2967,25 @@
         .qk-115-filter-row .qk-115-filter-clear { height:28px; padding:0 10px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; color:#64748b; cursor:pointer; font-size:12px; }
         .qk-115-filter-row .qk-115-filter-clear:hover { border-color:#b45309; color:#b45309; }
         .qk-115-file-hidden-by-filter { display:none !important; }
+        .qk-guangya-auth { margin:14px 0 18px; padding:16px; border:1px solid #dbe3ed; border-radius:9px; background:#fff; color:#1e293b; }
+        .qk-guangya-auth [hidden] { display:none !important; }
+        .qk-guangya-auth-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+        .qk-guangya-auth-heading > strong { font-size:14px; }
+        .qk-guangya-auth-heading > .qk-guangya-auth-actions { margin-left:auto; }
+        .qk-guangya-auth [data-guangya-auth-badge] { padding:3px 8px; border-radius:5px; font-size:12px; color:#64748b; background:#f1f5f9; }
+        .qk-guangya-auth [data-state="ready"] { color:#15803d; background:#f0fdf4; }
+        .qk-guangya-auth-note, .qk-guangya-auth-agreement { margin:10px 0 14px; color:#64748b; font-size:12px; line-height:1.65; }
+        .qk-guangya-auth-fields { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(120px,1fr); gap:12px; margin:14px 0; }
+        .qk-guangya-auth-field { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:12px; font-weight:600; color:#475569; }
+        .qk-guangya-auth-phone { display:flex; gap:8px; }
+        .qk-guangya-auth .rpc-helper-input { min-width:0; min-height:38px; }
+        .qk-guangya-auth .rpc-helper-btn { min-height:36px; white-space:nowrap; }
+        .qk-guangya-auth-phone > input { flex:1; width:0; }
+        .qk-guangya-auth-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+        .qk-guangya-auth-status { margin:12px 0 0; padding-top:12px; border-top:1px solid #eef2f6; font-size:12px; line-height:1.6; color:#475569; overflow-wrap:anywhere; }
+        .qk-guangya-auth-agreement { margin-bottom:0; }
+        .qk-guangya-auth-agreement a { color:#2563eb; }
+        @media (max-width:620px) { .qk-guangya-auth-fields { grid-template-columns:1fr; } .qk-guangya-auth { padding:12px; } .qk-guangya-auth .rpc-helper-btn { min-height:40px; } }
         .qk-rpc-guangya-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 0 10px 28px; min-height:44px; box-sizing:border-box; }
         .qk-rpc-guangya-row #${CONTAINER_ID} { margin:0; }
         .qk-rpc-123-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; min-height:36px; box-sizing:border-box; }
@@ -3429,7 +3449,7 @@
         return pathObj ? pathObj.path : WIN_DEFAULT_PATH;
       }
 
-      // 当前选中的服务器/路径只存本脚本的 GM 存储。
+      // 服务器配置共用，当前服务器/路径按网盘主站分别记忆；不沿用旧全局选择，避免跨网盘串用。
       function resolveActive() {
         let saved = GM_getValue(ACTIVE_KEY, null);
         let rpc = saved ? settings.rpcConfigs.find((cfg) => cfg.id === saved.rpcId) : null;
@@ -4196,24 +4216,257 @@
         const keys = new Set(props.selectedItems.map(String));
         return props.dataSource.filter((item) => item && keys.has(String(item.fileId)));
       }
-      function guangyaAuth() {
+      function guangyaAuth(allowExpired = false) {
         const store = getPageWindow().localStorage;
         const key = Object.keys(store).find((k) => k.startsWith('credentials_'));
         let cred = null;
         try { cred = key && JSON.parse(store.getItem(key) || 'null'); } catch (error) { cred = null; }
         if (!cred || !cred.access_token) throw new Error('光鸭未登录，请先登录');
-        if (cred.expires_at && Date.parse(cred.expires_at) < Date.now() + 30000) throw new Error('光鸭登录令牌已过期，请刷新页面后重试');
+        if (!allowExpired && cred.expires_at && Date.parse(cred.expires_at) < Date.now() + 30000) throw new Error('光鸭登录令牌已过期，请刷新页面后重试');
         return { token: `${cred.token_type || 'Bearer'} ${cred.access_token}`, did: store.getItem('swangpan_web_device_id') || '' };
       }
-      async function guangyaApi(path, body) {
-        const auth = guangyaAuth();
-        const headers = { 'Content-Type': 'application/json', dt: '4', Authorization: auth.token };
+      const GUANGYA_CLIENT_AUTH_KEY = 'guangya_client_auth_v1';
+      const GUANGYA_LOGIN_CLIENT_ID = 'atcFkeidp8ndm9yC';
+      let guangyaAuthGeneration = 0;
+      let guangyaRefreshPromise = null;
+      function guangyaAccountRequest(path, body, deviceId, captchaToken = '') {
+        return new Promise((resolve, reject) => GM_xmlhttpRequest({
+          method: 'POST', url: 'https://account.guangyapan.com' + path, timeout: 18000,
+          headers: { 'Content-Type': 'application/json', 'x-client-id': GUANGYA_LOGIN_CLIENT_ID,
+            'x-device-id': deviceId, 'x-platform-version': '13', 'x-client-version': 'guangyapan-drive/1.0.3',
+            'x-sdk-version': '9.1.2', 'x-protocol-version': '301',
+            ...(captchaToken ? { 'x-captcha-token': captchaToken } : {}) },
+          data: JSON.stringify({ ...body, client_id: GUANGYA_LOGIN_CLIENT_ID }),
+          onload(response) {
+            let data;
+            try { data = JSON.parse(response.responseText); }
+            catch (error) { reject(new Error('光鸭登录响应无法解析')); return; }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+              reject(new Error('光鸭登录响应格式异常')); return;
+            }
+            if (response.status < 200 || response.status >= 300 || data.error || (data.code !== undefined && Number(data.code) !== 0)) {
+              const error = new Error(`光鸭登录失败（${data.error || response.status}），请重试或完成官方验证`);
+              error.authInvalid = ['invalid_grant', 'unauthenticated', 'unauthorized_client'].includes(data.error);
+              reject(error); return;
+            }
+            resolve(data);
+          },
+          onerror: () => reject(new Error('光鸭登录网络失败')),
+          ontimeout: () => reject(new Error('光鸭登录请求超时'))
+        }));
+      }
+      function guangyaSaveClientAuth(data, previous = {}) {
+        const claims = guangyaClientClaims(data.access_token);
+        const web = guangyaClientClaims(guangyaAuth(true).token.replace(/^Bearer\s+/i, ''));
+        if (String(claims.sub) !== String(web.sub)) throw new Error('客户端凭据与网页账号不一致，未保存');
+        if (claims.exp * 1000 < Date.now() + 30000) throw new Error('客户端凭据已过期，未保存');
+        const saved = { access_token: data.access_token, refresh_token: data.refresh_token || previous.refresh_token || '',
+          client_id: GUANGYA_LOGIN_CLIENT_ID, device_id: previous.device_id, dt: '13',
+          expires_at: Math.min(claims.exp * 1000, Number(data.expires_in) > 0 ? Date.now() + Number(data.expires_in) * 1000 : Infinity) };
+        GM_setValue(GUANGYA_CLIENT_AUTH_KEY, saved);
+        WebDAV.push();
+        return saved;
+      }
+      async function guangyaRefreshClientAuth() {
+        if (guangyaRefreshPromise) return guangyaRefreshPromise;
+        const saved = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+        if (!saved?.refresh_token || saved.client_id !== GUANGYA_LOGIN_CLIENT_ID) throw new Error('客户端凭据已过期，请用验证码重新登录');
+        const generation = guangyaAuthGeneration;
+        guangyaRefreshPromise = (async () => {
+          try {
+            const data = await guangyaAccountRequest('/v1/auth/token', { grant_type: 'refresh_token', refresh_token: saved.refresh_token }, saved.device_id);
+            const current = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+            if (generation !== guangyaAuthGeneration || current?.access_token !== saved.access_token || current?.refresh_token !== saved.refresh_token) {
+              throw new Error('光鸭授权已变化，请重试');
+            }
+            return guangyaSaveClientAuth(data, saved);
+          } catch (error) {
+            const current = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+            if (error.authInvalid && generation === guangyaAuthGeneration && current?.refresh_token === saved.refresh_token) {
+              GM_setValue(GUANGYA_CLIENT_AUTH_KEY, { ...current, refresh_token: '' });
+              WebDAV.push();
+            }
+            throw error;
+          }
+        })().finally(() => { guangyaRefreshPromise = null; });
+        return guangyaRefreshPromise;
+      }
+      function guangyaClientClaims(token) {
+        try {
+          const payload = String(token || '').split('.')[1];
+          const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+          if (!claims.sub || !Number.isFinite(claims.exp)) throw new Error('invalid');
+          return claims;
+        } catch (error) { throw new Error('光鸭客户端凭据格式无效，请重新导入 Access Token'); }
+      }
+      function guangyaClientAuthState() {
+        const saved = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+        if (!saved || !saved.access_token) throw new Error('未配置客户端凭据，请到 设置 → 光鸭专属 验证码登录');
+        const claims = guangyaClientClaims(saved.access_token);
+        const web = guangyaClientClaims(guangyaAuth(true).token.replace(/^Bearer\s+/i, ''));
+        if (String(claims.sub) !== String(web.sub)) throw new Error('客户端凭据与网页账号不一致，请重新登录同一账号');
+        return { saved, expires: Math.min(claims.exp * 1000, Number(saved.expires_at) || Infinity) };
+      }
+      async function guangyaClientAuth() {
+        let { saved, expires } = guangyaClientAuthState();
+        if (expires < Date.now() + 60000) saved = await guangyaRefreshClientAuth();
+        return { token: `Bearer ${saved.access_token}`, dt: saved.dt || '5' };
+      }
+      function createGuangyaAuthSettings() {
+        const section = document.createElement('div');
+        section.dataset.guangyaAuth = '1';
+        section.className = 'qk-guangya-auth';
+        const heading = document.createElement('div'); heading.className = 'qk-guangya-auth-heading';
+        const title = document.createElement('strong'); title.textContent = '下载备用通道';
+        const badge = document.createElement('span'); badge.dataset.guangyaAuthBadge = '1';
+        const headingActions = document.createElement('div'); headingActions.className = 'qk-guangya-auth-actions';
+        const relogin = document.createElement('button'); relogin.type = 'button'; relogin.textContent = '重新登录';
+        relogin.className = 'rpc-helper-btn rpc-helper-btn-secondary';
+        heading.append(title, badge, headingActions);
+        const note = document.createElement('p'); note.className = 'qk-guangya-auth-note';
+        note.textContent = '网页取链失败时自动切换。授权一次后按需自动续期；授权凭据随 WebDAV 备份与恢复，请仅使用可信的同步存储。';
+        const form = document.createElement('div'); form.dataset.guangyaLoginForm = '1';
+        const fields = document.createElement('div'); fields.className = 'qk-guangya-auth-fields';
+        const phoneLabel = document.createElement('label'); phoneLabel.className = 'qk-guangya-auth-field';
+        const phoneCaption = document.createElement('span'); phoneCaption.textContent = '手机号';
+        const codeLabel = document.createElement('label'); codeLabel.className = 'qk-guangya-auth-field';
+        const codeCaption = document.createElement('span'); codeCaption.textContent = '短信验证码';
+        const phoneRow = document.createElement('div'); phoneRow.className = 'qk-guangya-auth-phone';
+        const formActions = document.createElement('div'); formActions.className = 'qk-guangya-auth-actions';
+        const phone = document.createElement('input');
+        phone.type = 'tel'; phone.autocomplete = 'off'; phone.className = 'rpc-helper-input';
+        phone.placeholder = '手机号（中国大陆 +86）'; phone.setAttribute('aria-label', '光鸭登录手机号');
+        const code = document.createElement('input');
+        code.type = 'password'; code.inputMode = 'numeric'; code.autocomplete = 'one-time-code';
+        code.className = 'rpc-helper-input'; code.placeholder = '短信验证码'; code.setAttribute('aria-label', '短信验证码');
+        const sendSms = document.createElement('button');
+        sendSms.type = 'button'; sendSms.textContent = '获取验证码';
+        const login = document.createElement('button');
+        login.type = 'button'; login.textContent = '验证码登录';
+        const cancel = document.createElement('button');
+        cancel.type = 'button'; cancel.textContent = '取消登录';
+        const agreement = document.createElement('p');
+        agreement.append(document.createTextNode('点击验证码登录即授权本脚本使用该账号进行取链及续期，并表示您同意光鸭的 '));
+        for (const [name, url] of [['用户协议', 'user-agreement'], ['隐私政策', 'privacy']]) {
+          const link = document.createElement('a'); link.textContent = name; link.href = `https://app.guangyapan.com/pan/policy/${url}`;
+          link.target = '_blank'; link.rel = 'noopener noreferrer'; agreement.append(link, document.createTextNode(' '));
+        }
+        let attempt = 0, session = null, nextSmsAt = 0, busy = false, sessionHint = '请先点击「获取验证码」，再输入收到的验证码登录';
+        let lastPhone = phone.value.trim();
+        const stopLogin = () => { attempt++; session = null; code.value = ''; login.disabled = false; busy = false; sendSms.disabled = false; };
+        phone.oninput = () => {
+          const value = phone.value.trim();
+          if (value === lastPhone) return;
+          const hadSession = Boolean(session) || busy;
+          lastPhone = value; stopLogin();
+          sessionHint = hadSession ? '手机号已更改，请重新获取验证码' : '请先点击「获取验证码」，再输入收到的验证码登录';
+          status.textContent = sessionHint;
+        };
+        cancel.onclick = () => { stopLogin(); sessionHint = '登录已取消，请重新获取验证码'; refresh(); status.textContent = '已取消登录，未修改现有授权'; };
+        sendSms.onclick = async () => {
+          if (busy) return;
+          if (!/^1\d{10}$/.test(phone.value.trim())) { status.textContent = '请输入正确的中国大陆手机号'; return; }
+          if (Date.now() < nextSmsAt) { status.textContent = '请等待 60 秒后再发送验证码'; return; }
+          const id = ++attempt, generation = guangyaAuthGeneration;
+          const username = `+86 ${phone.value.trim()}`, deviceId = crypto.randomUUID();
+          session = null; lastPhone = phone.value.trim(); login.disabled = true; busy = true; sendSms.disabled = true;
+          status.textContent = '正在请求验证码…';
+          const active = () => id === attempt && generation === guangyaAuthGeneration && section.isConnected;
+          try {
+            const captcha = await guangyaAccountRequest('/v1/shield/captcha/init', {
+              action: 'POST:/v1/auth/verification', device_id: deviceId, meta: { phone_number: username }
+            }, deviceId);
+            if (!active()) return;
+            if (captcha.url || !captcha.captcha_token) throw new Error('光鸭要求官方人机验证，请先在官方客户端完成验证后重试');
+            const result = await guangyaAccountRequest('/v1/auth/verification', {
+              phone_number: username, target: 'ANY', usage: 'SIGN_IN', selected_channel: 'VERIFICATION_PHONE'
+            }, deviceId, captcha.captcha_token);
+            if (!active()) return;
+            nextSmsAt = Date.now() + 60000;
+            if (!result.verification_id) throw new Error('未取得短信验证会话，请稍后重试');
+            if (result.is_user === false) throw new Error('该手机号尚未注册，请先在官方客户端注册，不自动创建账号');
+            session = { username, deviceId, verificationId: result.verification_id, captcha: captcha.captcha_token, deadline: Date.now() + 300000 };
+            login.disabled = false; status.textContent = '验证码已发送，请输入后点击验证码登录';
+          } catch (error) { if (active()) { sessionHint = error.message; status.textContent = error.message; } }
+          finally { if (id === attempt) { busy = false; sendSms.disabled = false; login.disabled = false; } }
+        };
+        login.onclick = async () => {
+          if (busy) return;
+          if (!session) { status.textContent = sessionHint; return; }
+          if (session.username !== `+86 ${phone.value.trim()}`) {
+            stopLogin(); sessionHint = '手机号已更改，请重新获取验证码'; status.textContent = sessionHint; return;
+          }
+          if (!/^\d{4,8}$/.test(code.value.trim())) { status.textContent = '请输入短信验证码'; return; }
+          if (Date.now() >= session.deadline) { stopLogin(); sessionHint = '验证码会话已过期，请重新获取验证码'; status.textContent = sessionHint; return; }
+          const id = attempt, generation = guangyaAuthGeneration, pending = session, verificationCode = code.value.trim();
+          busy = true; login.disabled = true; sendSms.disabled = true;
+          status.textContent = '正在验证登录…';
+          const active = () => id === attempt && generation === guangyaAuthGeneration && section.isConnected;
+          try {
+            const verified = await guangyaAccountRequest('/v1/auth/verification/verify', {
+              verification_id: pending.verificationId, verification_code: verificationCode
+            }, pending.deviceId);
+            if (!active()) return;
+            if (!verified.verification_token) throw new Error('验证码验证未通过，请重新输入');
+            const data = await guangyaAccountRequest('/v1/auth/signin', {
+              username: pending.username, verification_code: verificationCode, verification_token: verified.verification_token
+            }, pending.deviceId, pending.captcha);
+            if (!active()) return;
+            if (!data.refresh_token) throw new Error('未返回续期凭据，未保存，请重试');
+            guangyaSaveClientAuth(data, { device_id: pending.deviceId });
+            guangyaAuthGeneration++; stopLogin(); phone.value = ''; refresh();
+          } catch (error) { if (active()) { code.value = ''; status.textContent = error.message; } }
+          finally { if (id === attempt) { busy = false; login.disabled = false; sendSms.disabled = false; } }
+        };
+        const status = document.createElement('p');
+        status.className = 'qk-guangya-auth-status';
+        status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+        const refresh = () => {
+          let usable = false;
+          try {
+            const { saved, expires } = guangyaClientAuthState();
+            usable = expires >= Date.now() + 60000 || Boolean(saved.refresh_token);
+            badge.textContent = usable ? '已授权' : '需重新登录';
+            badge.dataset.state = usable ? 'ready' : 'idle';
+            status.textContent = saved.refresh_token
+              ? '授权已保存，取链时自动续期，无需每次获取验证码。'
+              : (usable ? '当前授权有效；到期后需重新登录。' : '授权已过期，请重新登录。');
+          } catch (error) {
+            badge.textContent = '未授权'; badge.dataset.state = 'idle';
+            status.textContent = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null) ? error.message : '请用与网页相同的账号完成一次短信验证。';
+          }
+          form.hidden = usable; relogin.hidden = !usable;
+          clear.hidden = !GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+        };
+        const clear = document.createElement('button');
+        clear.type = 'button'; clear.textContent = '清除授权'; clear.className = 'rpc-helper-btn rpc-helper-btn-danger';
+        clear.onclick = () => { guangyaAuthGeneration++; stopLogin(); GM_setValue(GUANGYA_CLIENT_AUTH_KEY, null); WebDAV.push(); phone.value = ''; refresh(); };
+        relogin.onclick = () => { stopLogin(); form.hidden = false; relogin.hidden = true; status.textContent = '重新登录不会清除已有授权；完成后替换。'; };
+        sendSms.className = 'rpc-helper-btn rpc-helper-btn-secondary';
+        login.className = 'rpc-helper-btn rpc-helper-btn-primary';
+        cancel.className = 'rpc-helper-btn rpc-helper-btn-secondary';
+        agreement.className = 'qk-guangya-auth-agreement';
+        phoneRow.append(phone, sendSms); phoneLabel.append(phoneCaption, phoneRow);
+        codeLabel.append(codeCaption, code); fields.append(phoneLabel, codeLabel);
+        formActions.append(login, cancel); form.append(fields, formActions, agreement);
+        headingActions.append(relogin, clear);
+        section.append(heading, note, form, status); refresh();
+        return section;
+      }
+      async function guangyaApi(path, body, auth = guangyaAuth()) {
+        const headers = { 'Content-Type': 'application/json', dt: auth.dt || '4', Authorization: auth.token };
         if (auth.did) headers.did = auth.did;
-        const res = await getPageWindow().fetch(GUANGYA_API + path, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+        let res;
+        try {
+          res = await getPageWindow().fetch(GUANGYA_API + path, { method: 'POST', headers,
+            body: JSON.stringify(body || {}), signal: getPageWindow().AbortSignal.timeout(18000) });
+        } catch (error) { throw new Error('光鸭请求失败或超时'); }
         let json = null;
         try { json = await res.json(); } catch (error) { throw new Error(`光鸭接口返回异常 HTTP ${res.status}`); }
-        if (!json || (typeof json.code === 'number' && json.code !== 0)) {
-          throw new Error(`光鸭接口 ${json && json.code !== undefined ? json.code : res.status}：${(json && json.msg) || '请求失败'}`);
+        if (!res.ok || !json || (json.code !== undefined && Number(json.code) !== 0)) {
+          const error = new Error(`光鸭接口 ${json && json.code !== undefined ? json.code : res.status}：${(json && json.msg) || '请求失败'}`);
+          error.authExpired = res.status === 401 || [110, 117, 118].includes(Number(json?.code));
+          throw error;
         }
         return json.data || {};
       }
@@ -4247,9 +4500,24 @@
         return out;
       }
       async function guangyaGetDownloadUrl(fileId) {
-        const data = await guangyaApi('/userres/v1/get_res_download_url', { fileId });
-        if (!/^https?:\/\//.test(data.signedURL || '')) throw new Error('光鸭未返回下载地址');
-        return data.signedURL;
+        const errors = [];
+        for (const [label, getAuth] of [['网页', guangyaAuth], ['客户端', guangyaClientAuth]]) {
+          try {
+            let auth = await getAuth(), data;
+            try { data = await guangyaApi('/userres/v1/get_res_download_url', { fileId }, auth); }
+            catch (error) {
+              if (label !== '客户端' || !error.authExpired) throw error;
+              const current = GM_getValue(GUANGYA_CLIENT_AUTH_KEY, null);
+              if (`Bearer ${current?.access_token}` === auth.token) await guangyaRefreshClientAuth();
+              auth = await guangyaClientAuth();
+              data = await guangyaApi('/userres/v1/get_res_download_url', { fileId }, auth);
+            }
+            const link = data.signedURL || data.downloadUrl;
+            if (!/^https?:\/\//.test(link || '')) throw new Error('光鸭未返回下载地址');
+            return link;
+          } catch (error) { errors.push(`${label}：${error.message}`); }
+        }
+        throw new Error(`光鸭双通道取链失败（${errors.join('；')}）`);
       }
 
       // ===== RPC 发送 / 失败记录 / 重试：公共流程（各网盘只提供适配器） =====
@@ -5142,6 +5410,7 @@
         const featurePage = document.createElement('div');
         featurePage.className = 'qk-rpc-feature-page';
         if (!ON_QUARK) featurePage.appendChild(createRpcSoundSwitch());
+        if (ON_GUANGYA) featurePage.appendChild(createGuangyaAuthSettings());
         if (features.length) {
           if (ON_115_AUX || ON_115) {
             const autoRow = document.createElement('label');

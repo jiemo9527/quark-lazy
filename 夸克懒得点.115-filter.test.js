@@ -58,7 +58,7 @@ function harness(initialFeatures = {}, virtual = {}) {
     '\nglobalThis.collect = async () => collect115Files(one15SelectedFiles());', context);
   vm.runInContext(slice('      async function runFreshSend(', '      // ===== 重试：') + '\nglobalThis.send = runFreshSend;', context);
   const makeSettings = () => {
-    Object.assign(context, { ON_115_AUX: false, ON_115: true, ON_QUARK: false,
+    Object.assign(context, { ON_115_AUX: false, ON_115: true, ON_QUARK: false, ON_GUANGYA: false,
       createRpcSoundSwitch: () => document.createElement('div'), isAutoSaveEnabled: () => false, setAutoSaveEnabled: () => {} });
     return vm.runInContext('(() => {' + slice('        const siteFeatures =', '        const switchTab =') + 'return featurePage; })()', context);
   };
